@@ -1,0 +1,20 @@
+{
+  "name": "solid-code-auditor-skill",
+  "version": "1.0.0",
+  "description": "Installer for the solid-code-auditor skill for the Gemini Agent",
+  "main": "install.js",
+  "bin": {
+    "solid-code-auditor-skill": "./install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rimacias/solid-code-auditor-skill.git"
+  },
+  "files": [
+    "install.js",
+    "SKILL.md",
+    "README.md",
+    "package.json"
+  ],
+  "license": "MIT"
+}
