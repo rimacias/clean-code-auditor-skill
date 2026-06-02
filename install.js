@@ -29,7 +29,7 @@ try {
   fs.mkdirSync(targetDir, { recursive: true });
 
   // 4. Copy files from the running npm package to the target directory
-  const filesToCopy = ['SKILL.md', 'README.md', 'package.json'];
+  const filesToCopy = ['SKILL.md', 'README.md', 'package.json', 'mcp-server.mjs', 'auditor.mjs'];
   filesToCopy.forEach(file => {
     const src = path.join(__dirname, file);
     const dest = path.join(targetDir, file);

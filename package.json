@@ -4,7 +4,8 @@
   "description": "Installer for the solid-code-auditor skill for the Gemini Agent",
   "main": "install.js",
   "bin": {
-    "solid-code-auditor-skill": "./install.js"
+    "solid-code-auditor-skill": "./install.js",
+    "solid-code-auditor-mcp": "./mcp-server.mjs"
   },
   "repository": {
     "type": "git",
@@ -14,7 +15,13 @@
     "install.js",
     "SKILL.md",
     "README.md",
-    "package.json"
+    "package.json",
+    "mcp-server.mjs",
+    "auditor.mjs"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
 }
