@@ -12,4 +12,10 @@ An agent skill that audits your codebase for SOLID compliance, DRY principles, d
 - **Git Integration:** Can analyze specific commits, branches, or changes since a given date.
 
 ## How to install for Gemini/Antigravity Agent
-Copy the `SKILL.md` file into your agent's skills directory.
+Currently, there isn't a native `skill install` command. However, anyone can install this skill into their agent's local plugins directory using this one-line command in their terminal:
+
+```bash
+mkdir -p ~/.gemini/config/plugins/local-custom-skills/skills && git clone https://github.com/rimacias/solid-code-auditor-skill.git ~/.gemini/config/plugins/local-custom-skills/skills/solid-code-auditor && echo '{"name": "local-custom-skills", "version": "1.0.0"}' > ~/.gemini/config/plugins/local-custom-skills/plugin.json
+```
+
+Once installed, they just need to restart their agent or chat interface to start using it!
