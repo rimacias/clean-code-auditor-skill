@@ -19,11 +19,15 @@ It bundles a complete, offline markdown knowledge base curated from [Refactoring
 
 ---
 
-## 📦 Installation for Gemini / Antigravity Agent
+### Via Open Agent Skills CLI (`skills.sh`)
+Install directly into your current project or coding agent (Claude Code, Cursor, Antigravity, Copilot, etc.):
 
-### Via npx (Global / On-Demand)
 ```bash
-npx clean-code-auditor-skill
+# Project-level install (installs into your current project's agent directory)
+npx skills add rimacias/clean-code-auditor-skill
+
+# Global install (makes the skill available across all projects on your machine)
+npx skills add rimacias/clean-code-auditor-skill -g
 ```
 
 ### From Local Repository
@@ -31,7 +35,7 @@ Run the installer directly from this repository:
 ```bash
 node ./install.js
 ```
-This copies the skill definition (`SKILL.md`), engine (`auditor.mjs`, `mcp-server.mjs`), and complete knowledge base (`references/`) to:
+This copies the skill definition (`SKILL.md`), engine (`auditor.mjs`, `mcp-server.mjs`), and complete knowledge base (`references/`) directly to:
 `~/.gemini/config/plugins/local-custom-skills/skills/clean-code-auditor`
 
 ---
