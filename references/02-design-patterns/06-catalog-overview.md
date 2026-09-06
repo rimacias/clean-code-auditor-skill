@@ -1,0 +1,50 @@
+# Catalog of Design Patterns
+
+> Source: [https://refactoring.guru/design-patterns/catalog](https://refactoring.guru/design-patterns/catalog)
+
+---
+
+# The Catalog of Design Patterns
+
+[![Factory Method](https://refactoring.guru/images/patterns/cards/factory-method-mini.png?id=72619e9527893374b98a5913779ac167)
+Factory Method](https://refactoring.guru/design-patterns/factory-method)
+[![Abstract Factory](https://refactoring.guru/images/patterns/cards/abstract-factory-mini.png?id=4c3927c446313a38ce77dfee38111e27)
+Abstract Factory](https://refactoring.guru/design-patterns/abstract-factory)
+[![Builder](https://refactoring.guru/images/patterns/cards/builder-mini.png?id=19b95fd05e6469679752c0554b116815)
+Builder](https://refactoring.guru/design-patterns/builder)
+[![Prototype](https://refactoring.guru/images/patterns/cards/prototype-mini.png?id=bc3046bb39ff36574c08d49839fd1c8e)
+Prototype](https://refactoring.guru/design-patterns/prototype)
+[![Singleton](https://refactoring.guru/images/patterns/cards/singleton-mini.png?id=914e1565dfdf15f240e766163bd303ec)
+Singleton](https://refactoring.guru/design-patterns/singleton)
+
+[![Bridge](https://refactoring.guru/images/patterns/cards/bridge-mini.png?id=b389101d8ee8e23ffa1b534c704d0774)
+Bridge](https://refactoring.guru/design-patterns/bridge)
+[![Composite](https://refactoring.guru/images/patterns/cards/composite-mini.png?id=a369d98d18b417f255d04568fd0131b8)
+Composite](https://refactoring.guru/design-patterns/composite)
+[![Decorator](https://refactoring.guru/images/patterns/cards/decorator-mini.png?id=d30458908e315af195cb183bc52dbef9)
+Decorator](https://refactoring.guru/design-patterns/decorator)
+[![Flyweight](https://refactoring.guru/images/patterns/cards/flyweight-mini.png?id=422ca8d2f90614dce810a8812c626698)
+Flyweight](https://refactoring.guru/design-patterns/flyweight)
+[![Proxy](https://refactoring.guru/images/patterns/cards/proxy-mini.png?id=25890b11e7dc5af29625ccd0678b63a8)
+Proxy](https://refactoring.guru/design-patterns/proxy)
+
+[![Chain of Responsibility](https://refactoring.guru/images/patterns/cards/chain-of-responsibility-mini.png?id=36d85eba8d14986f053123de17aac7a7)
+Chain of Responsibility](https://refactoring.guru/design-patterns/chain-of-responsibility)
+[![Command](https://refactoring.guru/images/patterns/cards/command-mini.png?id=b149eda017c0583c1e92343b83cfb1eb)
+Command](https://refactoring.guru/design-patterns/command)
+[![Iterator](https://refactoring.guru/images/patterns/cards/iterator-mini.png?id=76c28bb48f997b36965983dd2b41f02e)
+Iterator](https://refactoring.guru/design-patterns/iterator)
+[![Mediator](https://refactoring.guru/images/patterns/cards/mediator-mini.png?id=a7e43ee8e17e4474737b1fcb3201d7ba)
+Mediator](https://refactoring.guru/design-patterns/mediator)
+[![Memento](https://refactoring.guru/images/patterns/cards/memento-mini.png?id=8b2ea4dc2c5d15775a654808cc9de099)
+Memento](https://refactoring.guru/design-patterns/memento)
+[![Observer](https://refactoring.guru/images/patterns/cards/observer-mini.png?id=fd2081ab1cff29c60b499bcf6a62786a)
+Observer](https://refactoring.guru/design-patterns/observer)
+[![State](https://refactoring.guru/images/patterns/cards/state-mini.png?id=f4018837e0641d1dade756b6678fd4ee)
+State](https://refactoring.guru/design-patterns/state)
+[![Strategy](https://refactoring.guru/images/patterns/cards/strategy-mini.png?id=d38abee4fb6f2aed909d262bdadca936)
+Strategy](https://refactoring.guru/design-patterns/strategy)
+[![Template Method](https://refactoring.guru/images/patterns/cards/template-method-mini.png?id=9f200248d88026d8e79d0f3dae411ab4)
+Template Method](https://refactoring.guru/design-patterns/template-method)
+[![Visitor](https://refactoring.guru/images/patterns/cards/visitor-mini.png?id=854a35a62963bec1d75eab996918989b)
+Visitor](https://refactoring.guru/design-patterns/visitor)

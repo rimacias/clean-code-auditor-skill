@@ -1,15 +1,17 @@
 {
-  "name": "solid-code-auditor-skill",
-  "version": "1.0.0",
-  "description": "Installer for the solid-code-auditor skill for the Gemini Agent",
+  "name": "clean-code-auditor-skill",
+  "version": "2.0.0",
+  "description": "Installer and MCP server for the clean-code-auditor skill with bundled Refactoring Guru knowledge base",
   "main": "install.js",
   "bin": {
+    "clean-code-auditor-skill": "./install.js",
+    "clean-code-auditor-mcp": "./mcp-server.mjs",
     "solid-code-auditor-skill": "./install.js",
     "solid-code-auditor-mcp": "./mcp-server.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rimacias/solid-code-auditor-skill.git"
+    "url": "git+https://github.com/rimacias/clean-code-auditor-skill.git"
   },
   "files": [
     "install.js",
@@ -17,7 +19,8 @@
     "README.md",
     "package.json",
     "mcp-server.mjs",
-    "auditor.mjs"
+    "auditor.mjs",
+    "references"
   ],
   "license": "MIT",
   "dependencies": {

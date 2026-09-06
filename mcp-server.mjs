@@ -11,15 +11,15 @@ import {
 import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
-import { detectDuplicates, auditSolid } from "./auditor.mjs";
+import { detectDuplicates, auditSolid, lookupKnowledge, getKnowledgeDoc } from "./auditor.mjs";
 
 const execAsync = promisify(exec);
 
 // Initialize the MCP server
 const server = new Server(
   {
-    name: "solid-code-auditor",
-    version: "1.0.0",
+    name: "clean-code-auditor",
+    version: "2.0.0",
   },
   {
     capabilities: {
@@ -86,7 +86,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "detect_duplicates",
-        description: "Scans files in a directory to detect duplicate blocks of code (DRY violations) and returns location/snippet details.",
+        description: "Scans files in a directory to detect duplicate blocks of code (DRY violations), returning location, snippets, and recommended refactoring techniques.",
         inputSchema: {
           type: "object",
           properties: {
@@ -103,7 +103,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "audit_solid_compliance",
-        description: "Audits a codebase directory or specific file for SOLID compliance violations and common code smells (Large Class, Long Method, Too Many Parameters, High Coupling, Type Checking switch/cases, Hardcoded Dependency Instantiations).",
+        description: "Audits a codebase directory or specific file for SOLID compliance violations and common code smells (Large Class, Long Method, Long Parameter List, High Coupling, Switch Statements / Type Checking, Hardcoded Dependency Instantiations). Returns violations mapped to canonical Refactoring Guru smells and techniques.",
         inputSchema: {
           type: "object",
           properties: {
@@ -119,14 +119,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "lookup_knowledge_base",
+        description: "Searches the bundled Clean Code, Refactoring (23 code smells, 66 refactorings), and 22 Design Patterns knowledge base for articles, guides, or solutions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Search term (e.g. 'Factory Method', 'Extract Method', 'Long Method', 'Strategy', 'Technical Debt')."
+            }
+          },
+          required: ["query"]
+        }
+      },
+      {
+        name: "get_reference_doc",
+        description: "Retrieves the full markdown guide for a specific pattern, smell, or refactoring technique using its relative reference path (e.g., '02-design-patterns/07-creational-patterns/01-factory-method.md').",
+        inputSchema: {
+          type: "object",
+          properties: {
+            relPath: {
+              type: "string",
+              description: "Relative path to the markdown file inside references/."
+            }
+          },
+          required: ["relPath"]
+        }
+      },
+      {
         name: "generate_refactoring_plan",
-        description: "Creates a step-by-step refactoring instruction plan to resolve a specific SOLID or duplication violation using design pattern guidelines.",
+        description: "Creates a step-by-step refactoring instruction plan to resolve a specific SOLID violation, code smell, or duplication using authoritative Refactoring Guru techniques and Design Patterns.",
         inputSchema: {
           type: "object",
           properties: {
             issueType: {
               type: "string",
-              enum: ["duplicate_code", "SRP", "OCP", "LSP", "ISP", "DIP", "Code Smell"],
+              enum: ["duplicate_code", "SRP", "OCP", "LSP", "ISP", "DIP", "Code Smell", "Bloater", "Coupler", "OO Abuser"],
               description: "The type of principle or violation to fix."
             },
             files: {
@@ -137,6 +165,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             details: {
               type: "string",
               description: "Brief details or description of the violation."
+            },
+            targetPatternOrTechnique: {
+              type: "string",
+              description: "Optional specific pattern or technique to apply (e.g. 'Extract Method', 'Strategy Pattern', 'Factory Method')."
             }
           },
           required: ["issueType", "files", "details"]
@@ -249,36 +281,75 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
       }
+
+      case "lookup_knowledge_base": {
+        const query = args.query;
+        try {
+          const results = await lookupKnowledge(query);
+          if (results.length === 0) {
+            return {
+              content: [{ type: "text", text: `No references found matching "${query}".` }]
+            };
+          }
+          return {
+            content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (e) {
+          return {
+            content: [{ type: "text", text: `Error querying knowledge base: ${e.message}` }],
+            isError: true
+          };
+        }
+      }
+
+      case "get_reference_doc": {
+        const relPath = args.relPath;
+        try {
+          const doc = await getKnowledgeDoc(relPath);
+          return {
+            content: [{ type: "text", text: doc }]
+          };
+        } catch (e) {
+          return {
+            content: [{ type: "text", text: `Error reading reference doc: ${e.message}` }],
+            isError: true
+          };
+        }
+      }
       
       case "generate_refactoring_plan": {
-        const { issueType, files, details } = args;
+        const { issueType, files, details, targetPatternOrTechnique } = args;
         
         let plan = `### Refactoring Plan for ${issueType}\n`;
-        plan += `**Files Involved:** ${files.join(', ')}\n\n`;
-        plan += `**Issue Details:** ${details}\n\n`;
+        plan += `**Files Involved:** ${files.join(', ')}\n`;
+        plan += `**Issue Details:** ${details}\n`;
+        if (targetPatternOrTechnique) {
+          plan += `**Target Technique/Pattern:** ${targetPatternOrTechnique}\n`;
+        }
+        plan += `\n#### Recommended Architectural Solution:\n`;
         
-        plan += `#### Proposed Solution:\n`;
         if (issueType === 'duplicate_code') {
           plan += `1. **Identify Shared Abstraction**: Define a shared helper function, module, or common parent class to contain the duplicated logic.\n`;
-          plan += `2. **Extract Method**: Move the duplicate block to the shared abstraction, using parameters for any variables that differ between occurrences.\n`;
-          plan += `3. **Reference Helper**: Replace the original duplicate blocks with calls/references to the new shared helper.\n`;
-          plan += `4. **Test**: Run tests to ensure identical functional behavior is maintained (DRY principle).\n`;
-        } else if (issueType === 'SRP') {
-          plan += `1. **Separate Responsibilities**: Break down the large class or method into distinct units, each handling one single concern.\n`;
-          plan += `2. **Delegate Work**: Outsource logic to helper objects/services (e.g. Validator, Formatter, DB client) rather than doing it all inline.\n`;
-          plan += `3. **Clean Interfaces**: Expose simple API endpoints or functions for the consumer.\n`;
-        } else if (issueType === 'OCP') {
-          plan += `1. **Extract to Polymorphic Classes/Functions**: Replace conditional checks (switch statements/type checks) with class inheritance or strategy functions.\n`;
-          plan += `2. **Register Implementations**: Use a registry or factory method that maps type names to their respective strategy implementations.\n`;
-          plan += `3. **Extend without Modifying**: New type handlers can now be added by creating a new class/object registering to the factory, without altering existing logic.\n`;
-        } else if (issueType === 'DIP') {
-          plan += `1. **Define Contract/Interface**: Specify what methods the dependency requires.\n`;
-          plan += `2. **Accept dependency in Constructor**: Modify the class to accept the dependency as a parameter (Constructor Injection).\n`;
-          plan += `3. **Configure Injection**: Wire up the class at the entrypoint/composition root of the application, passing in the required dependency instance.\n`;
+          plan += `2. **Apply [Extract Method](references/01-refactoring/06-refactoring-techniques/01-composing-methods/01-extract-method.md)**: Move duplicate blocks into a single parametrized function.\n`;
+          plan += `3. **Consider [Form Template Method](references/01-refactoring/06-refactoring-techniques/06-dealing-with-generalization/10-form-template-method.md)**: If subclasses share identical algorithmic steps with minor variations.\n`;
+          plan += `4. **Verify**: Ensure unit test coverage confirms identical behavior after consolidation.\n`;
+        } else if (issueType === 'SRP' || issueType === 'Bloater') {
+          plan += `1. **Analyze Responsibilities**: Identify the disparate concerns clustered in the class or method (e.g. data storage vs business calculation vs I/O formatting).\n`;
+          plan += `2. **Apply [Extract Class](references/01-refactoring/06-refactoring-techniques/02-moving-features-between-objects/03-extract-class.md)**: Move secondary responsibilities to dedicated helper classes.\n`;
+          plan += `3. **Apply [Extract Method](references/01-refactoring/06-refactoring-techniques/01-composing-methods/01-extract-method.md)**: Break long procedures into self-documenting sub-routines (< 20 lines each).\n`;
+          plan += `4. **Apply [Introduce Parameter Object](references/01-refactoring/06-refactoring-techniques/05-simplifying-method-calls/06-introduce-parameter-object.md)**: If long argument lists are obscuring calls.\n`;
+        } else if (issueType === 'OCP' || issueType === 'OO Abuser') {
+          plan += `1. **Eliminate Type-Branching**: Replace conditional switch / if-else blocks checking type codes with polymorphism.\n`;
+          plan += `2. **Apply [Replace Conditional with Polymorphism](references/01-refactoring/06-refactoring-techniques/04-simplifying-conditional-expressions/04-replace-conditional-with-polymorphism.md)**.\n`;
+          plan += `3. **Apply [Strategy Pattern](references/02-design-patterns/09-behavioral-patterns/08-strategy.md)** or **[Factory Method](references/02-design-patterns/07-creational-patterns/01-factory-method.md)**: Create a registry mapping keys to strategy handlers so new behavior is added without modifying existing classes.\n`;
+        } else if (issueType === 'DIP' || issueType === 'Coupler') {
+          plan += `1. **Extract Abstraction**: Define an interface or abstract contract representing the required service.\n`;
+          plan += `2. **Invert Dependency**: Accept the interface as a constructor parameter rather than instantiating the concrete class directly with 'new'.\n`;
+          plan += `3. **Apply [Factory Pattern](references/02-design-patterns/07-creational-patterns/01-factory-method.md)**: Use a factory or dependency injection container to assemble objects at the composition root.\n`;
         } else {
-          plan += `1. Apply clean coding principles to isolate and decouple the violating structures.\n`;
-          plan += `2. Extract helper classes or functions where methods are too long.\n`;
-          plan += `3. Group parameters into structs or parameter objects to simplify signatures.\n`;
+          plan += `1. Clean code review: Isolate the violating code structure.\n`;
+          plan += `2. Consult the relevant technique in references/01-refactoring/06-refactoring-techniques/.\n`;
+          plan += `3. Write a regression test, apply the refactoring incrementally, and re-test.\n`;
         }
         
         return {
@@ -305,4 +376,4 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // Start the server using stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("SOLID Code Auditor MCP Server running on stdio");
+console.error("Clean Code Auditor MCP Server running on stdio");

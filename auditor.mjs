@@ -1,8 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REFERENCES_DIR = path.join(__dirname, 'references');
 
 // Helper to recursively walk a directory and list source files
-export async function getFiles(dir, excludeDirs = ['node_modules', '.git', '.codegraph', 'dist', 'build', 'out']) {
+export async function getFiles(dir, excludeDirs = ['node_modules', '.git', '.codegraph', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage']) {
   const files = [];
   async function walk(currentDir) {
     let entries;
@@ -29,7 +34,7 @@ export async function getFiles(dir, excludeDirs = ['node_modules', '.git', '.cod
   return files;
 }
 
-// DRY duplicate detector
+// DRY duplicate detector using normalized token sliding windows
 export async function detectDuplicates(directory, minLines = 6) {
   const files = await getFiles(directory);
   
@@ -45,7 +50,7 @@ export async function detectDuplicates(directory, minLines = 6) {
       
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
-        let originalText = line;
+        const originalText = line;
         
         // Strip block comments
         if (inBlockComment) {
@@ -119,7 +124,7 @@ export async function detectDuplicates(directory, minLines = 6) {
   }
   
   const rawDuplicates = [];
-  for (const [hash, occurrences] of blockHashes.entries()) {
+  for (const occurrences of blockHashes.values()) {
     if (occurrences.length > 1) {
       rawDuplicates.push(occurrences);
     }
@@ -185,7 +190,11 @@ export async function detectDuplicates(directory, minLines = 6) {
     extendedDuplicates.push({
       linesCount: length,
       snippet,
-      instances
+      instances,
+      smell: "Duplicate Code",
+      category: "Dispensables",
+      reference: "01-refactoring/05-code-smells/04-dispensables/02-duplicate-code.md",
+      recommendedRefactorings: ["Extract Method", "Pull Up Method", "Form Template Method", "Substitute Algorithm"]
     });
   }
   
@@ -193,7 +202,7 @@ export async function detectDuplicates(directory, minLines = 6) {
   return extendedDuplicates;
 }
 
-// SOLID principles and Code Smells compliance checker
+// Clean Code & SOLID principles compliance auditor
 export async function auditSolid(directoryOrFile) {
   let files = [];
   const stat = await fs.promises.stat(directoryOrFile);
@@ -224,12 +233,13 @@ export async function auditSolid(directoryOrFile) {
       let classMethodCount = 0;
       
       const fileImports = [];
+      const paramSignatures = [];
       
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
         
-        // Imports check
+        // Imports tracking
         if (trimmed.startsWith('import ') || (trimmed.startsWith('const ') && trimmed.includes("require('")) || trimmed.startsWith('import {')) {
           fileImports.push(trimmed);
         }
@@ -251,26 +261,34 @@ export async function auditSolid(directoryOrFile) {
           
           if (classBraceCount === 0 && i > classStartLine) {
             const classLength = i + 1 - classStartLine;
-            if (classLength > 300) {
+            if (classLength > 250) {
               violations.push({
                 file: relativePath,
                 line: classStartLine,
-                type: 'SRP',
+                principle: 'SRP',
+                smell: 'Large Class',
+                category: 'Bloaters',
                 severity: 'warning',
-                rule: 'Large Class',
-                description: `Class '${className}' is too large (${classLength} lines). Large classes often violate the Single Responsibility Principle.`,
-                remedy: 'Refactor this class by splitting it into smaller, focused classes or extracting specific responsibilities.'
+                rule: 'Large Class (Bloater)',
+                description: `Class '${className}' contains ${classLength} lines. Large classes accumulate too many responsibilities, violating the Single Responsibility Principle.`,
+                remedy: 'Split the class into smaller, specialized classes or extract sub-components.',
+                reference: '01-refactoring/05-code-smells/01-bloaters/02-large-class.md',
+                recommendedRefactorings: ['Extract Class', 'Extract Subclass', 'Extract Interface', 'Duplicate Observed Data']
               });
             }
-            if (classMethodCount > 15) {
+            if (classMethodCount > 12) {
               violations.push({
                 file: relativePath,
                 line: classStartLine,
-                type: 'ISP',
+                principle: 'ISP / SRP',
+                smell: 'Large Class',
+                category: 'Bloaters',
                 severity: 'info',
-                rule: 'Too Many Class Methods',
-                description: `Class '${className}' defines ${classMethodCount} methods, which may violate Interface Segregation or Single Responsibility.`,
-                remedy: 'Divide the interface into smaller, more specific interfaces or separate implementation duties.'
+                rule: 'Bloated Class Interface',
+                description: `Class '${className}' exposes ${classMethodCount} methods, suggesting poor cohesion and possible Interface Segregation Principle violation.`,
+                remedy: 'Segregate the class into smaller interfaces or delegate subsets of operations to collaborator objects.',
+                reference: '01-refactoring/05-code-smells/01-bloaters/02-large-class.md',
+                recommendedRefactorings: ['Extract Class', 'Extract Interface', 'Hide Delegate']
               });
             }
             insideClass = false;
@@ -295,15 +313,22 @@ export async function auditSolid(directoryOrFile) {
             if (paramStart !== -1 && paramEnd !== -1) {
               const paramsStr = line.substring(paramStart + 1, paramEnd);
               const params = paramsStr.split(',').map(p => p.trim()).filter(Boolean);
-              if (params.length > 4) {
+              if (params.length > 0) {
+                paramSignatures.push({ methodName, params: params.join(',') });
+              }
+              if (params.length >= 4) {
                 violations.push({
                   file: relativePath,
                   line: i + 1,
-                  type: 'Code Smell',
+                  principle: 'Clean Code',
+                  smell: 'Long Parameter List',
+                  category: 'Bloaters',
                   severity: 'warning',
-                  rule: 'Too Many Parameters',
-                  description: `Function '${methodName}' has ${params.length} parameters, making it hard to maintain and test.`,
-                  remedy: 'Introduce a parameter object or config struct to encapsulate these arguments.'
+                  rule: 'Long Parameter List (Bloater)',
+                  description: `Function '${methodName}' takes ${params.length} parameters, making callers brittle and hard to maintain.`,
+                  remedy: 'Group related parameters into a parameter object, dictionary, or configuration struct.',
+                  reference: '01-refactoring/05-code-smells/01-bloaters/04-long-parameter-list.md',
+                  recommendedRefactorings: ['Introduce Parameter Object', 'Preserve Whole Object', 'Replace Parameter with Method Call']
                 });
               }
             }
@@ -319,69 +344,149 @@ export async function auditSolid(directoryOrFile) {
           braceCount += opens - closes;
           
           if (braceCount === 0 && i > methodStartLine) {
-            if (methodLinesCount > 50) {
+            if (methodLinesCount > 40) {
               violations.push({
                 file: relativePath,
                 line: methodStartLine,
-                type: 'SRP',
+                principle: 'SRP',
+                smell: 'Long Method',
+                category: 'Bloaters',
                 severity: 'warning',
-                rule: 'Long Method',
-                description: `Method '${methodName}' is too long (${methodLinesCount} logical lines). Long methods indicate multiple responsibilities.`,
-                remedy: 'Extract logical sub-sections of this method into smaller helper functions.'
+                rule: 'Long Method (Bloater)',
+                description: `Method '${methodName}' has ${methodLinesCount} logical lines. Long methods obscure intent and hide multiple hidden responsibilities.`,
+                remedy: 'Decompose the method into smaller, clearly named functions using Extract Method.',
+                reference: '01-refactoring/05-code-smells/01-bloaters/01-long-method.md',
+                recommendedRefactorings: ['Extract Method', 'Replace Temp with Query', 'Introduce Parameter Object', 'Decompose Conditional']
               });
             }
             insideMethod = false;
           }
         }
         
-        // OCP Check: Switch statements / kind checks inside classes
+        // OCP Check: Switch statements or complex type branches inside classes
         if (trimmed.startsWith('switch ') || (trimmed.startsWith('if ') && (trimmed.includes('=== "') || trimmed.includes('== "') || trimmed.includes('.type ===') || trimmed.includes('.kind ===')))) {
           if (insideClass && (trimmed.startsWith('switch') || trimmed.includes('.type') || trimmed.includes('.kind'))) {
             violations.push({
               file: relativePath,
               line: i + 1,
-              type: 'OCP',
+              principle: 'OCP',
+              smell: 'Switch Statements',
+              category: 'Object-Orientation Abusers',
               severity: 'info',
-              rule: 'Type Checking Violation',
-              description: `Type or kind checking detected in class method. Modifying type ranges will require editing this block, violating Open/Closed Principle.`,
-              remedy: 'Use polymorphism, factory pattern, or strategy pattern to decouple behavior from type values.'
+              rule: 'Switch Statements / Type Checking (OO Abuser)',
+              description: `Type-branching conditional detected in class '${className}'. Adding a new type requires modifying this code, violating the Open/Closed Principle.`,
+              remedy: 'Replace conditional logic with polymorphism or dynamic strategy dispatch.',
+              reference: '01-refactoring/05-code-smells/02-oo-abusers/03-switch-statements.md',
+              recommendedRefactorings: ['Replace Conditional with Polymorphism', 'Replace Type Code with Subclasses', 'Replace Type Code with State/Strategy'],
+              designPatterns: ['Strategy Pattern', 'Factory Method', 'State Pattern']
             });
           }
         }
         
-        // DIP Check: hardcoded instantiation of complex objects
+        // DIP Check: Hardcoded object instantiation in business classes
         if (insideClass && trimmed.includes('new ') && !trimmed.includes('new Date') && !trimmed.includes('new Error') && !trimmed.includes('new Promise') && !trimmed.includes('new Map') && !trimmed.includes('new Set') && !trimmed.includes('new RegExp')) {
-          const newMatch = trimmed.match(/new\s+(\w+)/);
+          const newMatch = trimmed.match(/new\s+([A-Z]\w+)/);
           if (newMatch) {
             violations.push({
               file: relativePath,
               line: i + 1,
-              type: 'DIP',
+              principle: 'DIP',
+              smell: 'Inappropriate Intimacy / Hardcoded Dependency',
+              category: 'Couplers',
               severity: 'warning',
-              rule: 'Hardcoded Dependency Injection',
-              description: `Hardcoded instantiation of class '${newMatch[1]}' inside class '${className}'. This violates the Dependency Inversion Principle.`,
-              remedy: `Inject '${newMatch[1]}' (or its interface abstraction) via constructor or factory injection.`
+              rule: 'Hardcoded Instantiation (DIP Violation)',
+              description: `Direct instantiation of '${newMatch[1]}' inside class '${className}'. Violates Dependency Inversion Principle; higher-level classes should depend on abstractions.`,
+              remedy: `Inject '${newMatch[1]}' or its interface abstraction via constructor or factory.`,
+              reference: '01-refactoring/05-code-smells/05-couplers/02-inappropriate-intimacy.md',
+              recommendedRefactorings: ['Replace Constructor with Factory Method', 'Extract Interface'],
+              designPatterns: ['Factory Method', 'Abstract Factory', 'Dependency Injection']
             });
           }
         }
       }
       
+      // High Coupling / Couplers smell
       if (fileImports.length > 15) {
         violations.push({
           file: relativePath,
           line: 1,
-          type: 'Code Smell',
+          principle: 'Clean Architecture',
+          smell: 'High Coupling',
+          category: 'Couplers',
           severity: 'warning',
-          rule: 'High Coupling',
-          description: `File has too many imports (${fileImports.length}). High coupling makes the code fragile and harder to test.`,
-          remedy: 'Split the file or group related imports/responsibilities to decouple dependencies.'
+          rule: 'Excessive Coupling (Coupler)',
+          description: `Module imports ${fileImports.length} external dependencies. High coupling makes changes cascading and units difficult to test in isolation.`,
+          remedy: 'Consolidate dependencies, introduce Facade or Mediator patterns, or split module responsibilities.',
+          reference: '01-refactoring/05-code-smells/05-couplers/00-overview.md',
+          recommendedRefactorings: ['Extract Class', 'Hide Delegate', 'Remove Middle Man'],
+          designPatterns: ['Facade Pattern', 'Mediator Pattern']
         });
       }
       
     } catch (e) {
-      // ignore
+      // ignore read errors
     }
   }
   
   return violations;
+}
+
+// Search and lookup helper for bundled references
+export async function lookupKnowledge(query) {
+  const queryLower = query.toLowerCase().trim();
+  const results = [];
+  
+  if (!fs.existsSync(REFERENCES_DIR)) {
+    return results;
+  }
+  
+  async function searchDir(currentDir, relPrefix = '') {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      const relPath = path.join(relPrefix, entry.name);
+      if (entry.isDirectory()) {
+        await searchDir(fullPath, relPath);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        try {
+          const content = await fs.promises.readFile(fullPath, 'utf8');
+          const lines = content.split('\n');
+          const title = lines[0]?.replace(/^#\s+/, '').trim() || entry.name;
+          
+          if (title.toLowerCase().includes(queryLower) || entry.name.toLowerCase().includes(queryLower) || content.toLowerCase().includes(queryLower)) {
+            // extract short summary (first non-empty paragraph)
+            let summary = '';
+            for (let i = 1; i < Math.min(lines.length, 30); i++) {
+              const l = lines[i].trim();
+              if (l && !l.startsWith('#') && !l.startsWith('>') && !l.startsWith('!') && !l.startsWith('---')) {
+                summary = l;
+                break;
+              }
+            }
+            results.push({
+              title,
+              relPath,
+              summary: summary.substring(0, 160) + (summary.length > 160 ? '...' : ''),
+              fullPath
+            });
+          }
+        } catch (e) {}
+      }
+    }
+  }
+  
+  await searchDir(REFERENCES_DIR);
+  return results.slice(0, 10);
+}
+
+// Retrieve full text of a reference file
+export async function getKnowledgeDoc(relDocPath) {
+  const target = path.resolve(REFERENCES_DIR, relDocPath);
+  if (!target.startsWith(REFERENCES_DIR)) {
+    throw new Error('Access denied: Invalid document path');
+  }
+  if (!fs.existsSync(target)) {
+    throw new Error(`Document not found: ${relDocPath}`);
+  }
+  return await fs.promises.readFile(target, 'utf8');
 }
