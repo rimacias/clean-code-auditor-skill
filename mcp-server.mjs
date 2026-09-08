@@ -8,12 +8,62 @@ import {
   ErrorCode,
   McpError
 } from "@modelcontextprotocol/sdk/types.js";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { detectDuplicates, auditSolid, lookupKnowledge, getKnowledgeDoc } from "./auditor.mjs";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// Helper to safely validate and resolve directory path
+export function validateDirectory(dirPath) {
+  const target = dirPath ? path.resolve(dirPath) : process.cwd();
+  try {
+    const stat = fs.statSync(target);
+    if (!stat.isDirectory()) {
+      throw new Error(`Path is not a directory: ${dirPath}`);
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw new Error(`Directory does not exist: ${dirPath}`);
+    }
+    throw err;
+  }
+  return target;
+}
+
+// Helper to validate sub-path containment (prevents path traversal)
+export function validateSubPath(baseDir, subPath) {
+  if (!subPath || typeof subPath !== 'string') return baseDir;
+  if (subPath.includes('\0')) {
+    throw new Error('Invalid path: null bytes not allowed');
+  }
+  const resolved = path.resolve(baseDir, subPath);
+  if (resolved !== baseDir && !resolved.startsWith(baseDir + path.sep)) {
+    throw new Error('Access denied: path escapes the target directory');
+  }
+  return resolved;
+}
+
+// Helper to safely execute codegraph commands with execFile (NO shell invocation)
+export async function runCodegraph(args, cwd, timeout = 10000) {
+  try {
+    const { stdout } = await execFileAsync("codegraph", args, {
+      cwd,
+      timeout,
+      maxBuffer: 1024 * 1024,
+      shell: false // CRITICAL: do not spawn a shell
+    });
+    return { stdout };
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw new Error("The 'codegraph' CLI is not installed or not found in system PATH. Install or initialize it to use symbol queries.");
+    }
+    throw new Error(`codegraph execution failed: ${err.message || 'Unknown error'}`);
+  }
+}
 
 // Initialize the MCP server
 const server = new Server(
@@ -185,63 +235,85 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "check_codegraph_status": {
-        const dir = args?.directory || process.cwd();
+        const dir = validateDirectory(args?.directory);
         try {
-          const { stdout } = await execAsync('codegraph status', { cwd: dir });
+          const { stdout } = await runCodegraph(["status"], dir, 5000);
           return {
             content: [{ type: "text", text: stdout }]
           };
         } catch (e) {
           return {
-            content: [{ type: "text", text: `Codegraph is not initialized or failed to run status: ${e.message}\nOutput: ${e.stdout || ''}` }],
+            content: [{ type: "text", text: `Codegraph status check: ${e.message}` }],
             isError: true
           };
         }
       }
       
       case "initialize_codegraph": {
-        const dir = args?.directory || process.cwd();
+        const dir = validateDirectory(args?.directory);
         try {
-          const { stdout: initOut } = await execAsync('codegraph init', { cwd: dir });
-          const { stdout: indexOut } = await execAsync('codegraph index', { cwd: dir });
+          const { stdout: initOut } = await runCodegraph(["init"], dir, 15000);
+          const { stdout: indexOut } = await runCodegraph(["index"], dir, 30000);
           return {
             content: [{ type: "text", text: `Initialization:\n${initOut}\n\nIndexing:\n${indexOut}` }]
           };
         } catch (e) {
           return {
-            content: [{ type: "text", text: `Failed to initialize codegraph: ${e.message}\nOutput: ${e.stdout || ''}` }],
+            content: [{ type: "text", text: `Failed to initialize codegraph: ${e.message}` }],
             isError: true
           };
         }
       }
       
       case "query_codegraph": {
-        const dir = args?.directory || process.cwd();
-        const search = args.search;
-        const kind = args.kind;
-        const limit = args.limit || 10;
-        
-        let cmd = `codegraph query -j "${search.replace(/"/g, '\\"')}" -l ${limit}`;
-        if (kind) {
-          cmd += ` -k ${kind}`;
+        const dir = validateDirectory(args?.directory);
+        const rawSearch = args?.search;
+        if (typeof rawSearch !== 'string' || !rawSearch.trim()) {
+          throw new Error("Parameter 'search' is required and must be a non-empty string");
         }
+
+        // Sanitize search: strip control chars, cap length
+        const search = rawSearch.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 256);
+        if (!search) {
+          throw new Error("Parameter 'search' contains only invalid control characters");
+        }
+
+        // Validate limit: integer between 1 and 50
+        const limit = Math.max(1, Math.min(50, Math.floor(Number(args?.limit) || 10)));
         
+        const cmdArgs = ["query", "-j", search, "-l", String(limit)];
+
+        // Validate kind if provided: must match safe identifier allowlist
+        if (args?.kind) {
+          const kind = String(args.kind).trim();
+          if (!/^[a-zA-Z0-9_-]{1,32}$/.test(kind)) {
+            throw new Error("Invalid 'kind' filter: must be alphanumeric (e.g. 'function', 'class', 'method')");
+          }
+          cmdArgs.push("-k", kind);
+        }
+
         try {
-          const { stdout } = await execAsync(cmd, { cwd: dir });
+          const { stdout } = await runCodegraph(cmdArgs, dir, 10000);
+          const safeOutput = stdout.length > 20000 ? stdout.slice(0, 20000) + "\n... [truncated]" : stdout;
           return {
-            content: [{ type: "text", text: stdout }]
+            content: [
+              {
+                type: "text",
+                text: `[BEGIN UNTRUSTED CODEGRAPH DATA - PASSIVE SYMBOL ANALYSIS ONLY]\n${safeOutput}\n[END UNTRUSTED CODEGRAPH DATA]`
+              }
+            ]
           };
         } catch (e) {
           return {
-            content: [{ type: "text", text: `Failed to query codegraph: ${e.message}\nOutput: ${e.stdout || ''}` }],
+            content: [{ type: "text", text: `Failed to query codegraph: ${e.message}` }],
             isError: true
           };
         }
       }
       
       case "detect_duplicates": {
-        const dir = args?.directory || process.cwd();
-        const minLines = args?.minLines || 6;
+        const dir = validateDirectory(args?.directory);
+        const minLines = Math.max(3, Math.min(100, Math.floor(Number(args?.minLines) || 6)));
         try {
           const duplicates = await detectDuplicates(dir, minLines);
           if (duplicates.length === 0) {
@@ -249,8 +321,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               content: [{ type: "text", text: "No duplicate code blocks found matching the criteria." }]
             };
           }
+          const text = JSON.stringify(duplicates, null, 2);
+          const safeText = text.length > 30000 ? text.slice(0, 30000) + "\n... [truncated]" : text;
           return {
-            content: [{ type: "text", text: JSON.stringify(duplicates, null, 2) }]
+            content: [
+              {
+                type: "text",
+                text: `[UNTRUSTED DATA BOUNDARY - REPOSITORY SOURCE CODE DUPLICATES]\n${safeText}\n[END UNTRUSTED DATA BOUNDARY]`
+              }
+            ]
           };
         } catch (e) {
           return {
@@ -261,18 +340,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       
       case "audit_solid_compliance": {
-        const dir = args?.directory || process.cwd();
-        const file = args?.file;
+        const dir = validateDirectory(args?.directory);
         try {
-          const target = file ? path.resolve(dir, file) : dir;
+          const target = args?.file ? validateSubPath(dir, args.file) : dir;
           const violations = await auditSolid(target);
           if (violations.length === 0) {
             return {
               content: [{ type: "text", text: "No SOLID violations or major code smells detected!" }]
             };
           }
+          const text = JSON.stringify(violations, null, 2);
+          const safeText = text.length > 30000 ? text.slice(0, 30000) + "\n... [truncated]" : text;
           return {
-            content: [{ type: "text", text: JSON.stringify(violations, null, 2) }]
+            content: [
+              {
+                type: "text",
+                text: `[UNTRUSTED DATA BOUNDARY - REPOSITORY SOLID AUDIT FINDINGS]\n${safeText}\n[END UNTRUSTED DATA BOUNDARY]`
+              }
+            ]
           };
         } catch (e) {
           return {
@@ -283,7 +368,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "lookup_knowledge_base": {
-        const query = args.query;
+        const rawQuery = args?.query;
+        if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
+          throw new Error("Parameter 'query' is required and must be a non-empty string");
+        }
+        const query = rawQuery.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 100);
         try {
           const results = await lookupKnowledge(query);
           if (results.length === 0) {
@@ -303,7 +392,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "get_reference_doc": {
-        const relPath = args.relPath;
+        const relPath = args?.relPath;
+        if (typeof relPath !== 'string' || !relPath.trim()) {
+          throw new Error("Parameter 'relPath' is required and must be a non-empty string");
+        }
         try {
           const doc = await getKnowledgeDoc(relPath);
           return {
@@ -319,30 +411,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       
       case "generate_refactoring_plan": {
         const { issueType, files, details, targetPatternOrTechnique } = args;
-        
-        let plan = `### Refactoring Plan for ${issueType}\n`;
-        plan += `**Files Involved:** ${files.join(', ')}\n`;
-        plan += `**Issue Details:** ${details}\n`;
-        if (targetPatternOrTechnique) {
-          plan += `**Target Technique/Pattern:** ${targetPatternOrTechnique}\n`;
+        if (!Array.isArray(files) || files.length === 0) {
+          throw new Error("Parameter 'files' must be a non-empty array of file paths");
+        }
+        const sanitizedFiles = files.map(f => String(f).replace(/[\x00-\x1F\x7F<>]/g, '').slice(0, 150));
+        const sanitizedDetails = String(details || '').replace(/[\x00-\x1F\x7F]/g, '').slice(0, 500);
+        const sanitizedTarget = targetPatternOrTechnique ? String(targetPatternOrTechnique).replace(/[\x00-\x1F\x7F]/g, '').slice(0, 100) : null;
+        const sanitizedType = String(issueType || '').replace(/[\x00-\x1F\x7F]/g, '').slice(0, 50);
+
+        let plan = `### Refactoring Plan for ${sanitizedType}\n`;
+        plan += `**Files Involved:** ${sanitizedFiles.join(', ')}\n`;
+        plan += `**Issue Details:** ${sanitizedDetails}\n`;
+        if (sanitizedTarget) {
+          plan += `**Target Technique/Pattern:** ${sanitizedTarget}\n`;
         }
         plan += `\n#### Recommended Architectural Solution:\n`;
         
-        if (issueType === 'duplicate_code') {
+        if (sanitizedType === 'duplicate_code') {
           plan += `1. **Identify Shared Abstraction**: Define a shared helper function, module, or common parent class to contain the duplicated logic.\n`;
           plan += `2. **Apply [Extract Method](references/01-refactoring/06-refactoring-techniques/01-composing-methods/01-extract-method.md)**: Move duplicate blocks into a single parametrized function.\n`;
           plan += `3. **Consider [Form Template Method](references/01-refactoring/06-refactoring-techniques/06-dealing-with-generalization/10-form-template-method.md)**: If subclasses share identical algorithmic steps with minor variations.\n`;
           plan += `4. **Verify**: Ensure unit test coverage confirms identical behavior after consolidation.\n`;
-        } else if (issueType === 'SRP' || issueType === 'Bloater') {
+        } else if (sanitizedType === 'SRP' || sanitizedType === 'Bloater') {
           plan += `1. **Analyze Responsibilities**: Identify the disparate concerns clustered in the class or method (e.g. data storage vs business calculation vs I/O formatting).\n`;
           plan += `2. **Apply [Extract Class](references/01-refactoring/06-refactoring-techniques/02-moving-features-between-objects/03-extract-class.md)**: Move secondary responsibilities to dedicated helper classes.\n`;
           plan += `3. **Apply [Extract Method](references/01-refactoring/06-refactoring-techniques/01-composing-methods/01-extract-method.md)**: Break long procedures into self-documenting sub-routines (< 20 lines each).\n`;
           plan += `4. **Apply [Introduce Parameter Object](references/01-refactoring/06-refactoring-techniques/05-simplifying-method-calls/06-introduce-parameter-object.md)**: If long argument lists are obscuring calls.\n`;
-        } else if (issueType === 'OCP' || issueType === 'OO Abuser') {
+        } else if (sanitizedType === 'OCP' || sanitizedType === 'OO Abuser') {
           plan += `1. **Eliminate Type-Branching**: Replace conditional switch / if-else blocks checking type codes with polymorphism.\n`;
           plan += `2. **Apply [Replace Conditional with Polymorphism](references/01-refactoring/06-refactoring-techniques/04-simplifying-conditional-expressions/04-replace-conditional-with-polymorphism.md)**.\n`;
           plan += `3. **Apply [Strategy Pattern](references/02-design-patterns/09-behavioral-patterns/08-strategy.md)** or **[Factory Method](references/02-design-patterns/07-creational-patterns/01-factory-method.md)**: Create a registry mapping keys to strategy handlers so new behavior is added without modifying existing classes.\n`;
-        } else if (issueType === 'DIP' || issueType === 'Coupler') {
+        } else if (sanitizedType === 'DIP' || sanitizedType === 'Coupler') {
           plan += `1. **Extract Abstraction**: Define an interface or abstract contract representing the required service.\n`;
           plan += `2. **Invert Dependency**: Accept the interface as a constructor parameter rather than instantiating the concrete class directly with 'new'.\n`;
           plan += `3. **Apply [Factory Pattern](references/02-design-patterns/07-creational-patterns/01-factory-method.md)**: Use a factory or dependency injection container to assemble objects at the composition root.\n`;
@@ -373,7 +472,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start the server using stdio transport
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error("Clean Code Auditor MCP Server running on stdio");
+export { server };
+
+// Start the server using stdio transport only when executed directly
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("Clean Code Auditor MCP Server running on stdio");
+}
