@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "Installer and MCP server for the clean-code-auditor skill with bundled Refactoring Guru knowledge base",
   "main": "install.js",
+  "scripts": {
+    "test": "node --test test/**/*.test.mjs"
+  },
   "bin": {
     "clean-code-auditor-skill": "./install.js",
     "clean-code-auditor-mcp": "./mcp-server.mjs",
