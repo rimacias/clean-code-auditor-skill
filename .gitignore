@@ -7,3 +7,7 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Skills CLI artifacts
+.agents/
+skills-lock.json
